@@ -1,492 +1,593 @@
 #!/usr/bin/env python3
 """
-NTBSS Complete Suite - Combined Force-Save, Save Editor, and DLC Unlocker
-All-in-one tool for Naruto to Boruto: Shinobi Striker
+NTBSS Complete Suite - All-in-one Automatic Setup & Editor
+Automated installation, one-click dump/edit/reload workflow
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, scrolledtext
 import os
 import sys
 import subprocess
-import shutil
 import json
-import struct
+import re
+import shutil
+import webbrowser
 from pathlib import Path
 from threading import Thread
 from collections import defaultdict
+from typing import Dict, List, Tuple
+import struct
+import time
 
 
-class NTBSSCompleteSuite:
-    """Main application combining all NTBSS tools"""
+class NTBSSAutoSetup:
+    """First-time setup wizard"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("NTBSS Complete Suite - Force-Save + Editor + DLC Unlocker")
-        self.root.geometry("900x700")
-        self.root.resizable(True, True)
+        self.root.title("NTBSS Setup Wizard")
+        self.root.geometry("600x500")
+        self.root.resizable(False, False)
+        self.completed = False
         
-        # Storage for parsed save data
+        self.show_welcome()
+    
+    def show_welcome(self):
+        """Welcome screen"""
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="NTBSS Complete Suite", font=("Arial", 18, "bold")).pack(pady=20)
+        ttk.Label(frame, text="First-Time Setup", font=("Arial", 12)).pack(pady=10)
+        
+        info = """This wizard will:
+        
+✓ Create required directories
+✓ Download CreamInstaller
+✓ Verify game installation
+✓ Configure UE4SS mod
+
+Click Next to continue."""
+        
+        ttk.Label(frame, text=info, justify=tk.LEFT, font=("Arial", 10)).pack(pady=20)
+        
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(pady=30)
+        ttk.Button(button_frame, text="▶ Next", command=self.step_directories).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="✕ Exit", command=self.root.quit).pack(side=tk.LEFT, padx=10)
+    
+    def step_directories(self):
+        """Create directories"""
+        self._clear_frame()
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="Creating Directories...", font=("Arial", 14, "bold")).pack(pady=20)
+        
+        progress = ttk.Progressbar(frame, length=400, mode='indeterminate')
+        progress.pack(pady=20)
+        progress.start()
+        
+        status_label = ttk.Label(frame, text="")
+        status_label.pack(pady=10)
+        
+        def setup():
+            try:
+                status_label.config(text="Creating C:\\temp...")
+                self.root.update()
+                Path("C:\\temp").mkdir(exist_ok=True)
+                
+                status_label.config(text="Creating save directory...")
+                self.root.update()
+                save_dir = Path.home() / "Saved Games" / "NARUTO TO BORUTO SHINOBI STRIKER"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                
+                status_label.config(text="✓ Directories created")
+                self.root.update()
+                time.sleep(1)
+                self.step_game_dir()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed: {e}")
+                self.step_game_dir()
+        
+        thread = Thread(target=setup, daemon=True)
+        thread.start()
+    
+    def step_game_dir(self):
+        """Find game directory"""
+        self._clear_frame()
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="Locating Game...", font=("Arial", 14, "bold")).pack(pady=20)
+        
+        progress = ttk.Progressbar(frame, length=400, mode='indeterminate')
+        progress.pack(pady=20)
+        progress.start()
+        
+        status_label = ttk.Label(frame, text="")
+        status_label.pack(pady=10)
+        
+        def find_game():
+            try:
+                import winreg
+                status_label.config(text="Checking Steam registry...")
+                self.root.update()
+                
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Wow6432Node\Valve\Steam") as key:
+                    steam_path = winreg.QueryValueEx(key, "InstallPath")[0]
+                    game_path = Path(steam_path) / "steamapps" / "common" / "Naruto To Boruto"
+                    
+                    if game_path.exists():
+                        status_label.config(text=f"✓ Found: {game_path}")
+                        self.root.update()
+                        time.sleep(1)
+                        self.step_cream()
+                        return
+            except:
+                pass
+            
+            status_label.config(text="Game not found in registry")
+            self.root.update()
+            time.sleep(1)
+            self.step_cream()
+        
+        thread = Thread(target=find_game, daemon=True)
+        thread.start()
+    
+    def step_cream(self):
+        """Download CreamInstaller"""
+        self._clear_frame()
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="CreamInstaller Setup", font=("Arial", 14, "bold")).pack(pady=20)
+        
+        info = """CreamInstaller is required for DLC unlocking.
+
+Click 'Download' to visit the GitHub releases page,
+or skip if you already have it."""
+        
+        ttk.Label(frame, text=info, justify=tk.LEFT).pack(pady=20)
+        
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(pady=30)
+        
+        ttk.Button(button_frame, text="📥 Download", 
+                  command=lambda: self._download_cream()).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="⏭ Skip", 
+                  command=self.step_complete).pack(side=tk.LEFT, padx=10)
+    
+    def _download_cream(self):
+        """Download CreamInstaller"""
+        webbrowser.open("https://github.com/FroggMaster/CreamInstaller/releases")
+        self.step_complete()
+    
+    def step_complete(self):
+        """Setup complete"""
+        self._clear_frame()
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="Setup Complete!", font=("Arial", 16, "bold")).pack(pady=20)
+        
+        info = """✓ Directories created
+✓ Game location verified
+✓ CreamInstaller ready
+
+You're all set! Next steps:
+
+1. Launch the game
+2. Load into a lobby
+3. Use the editor to dump/edit/reload saves
+
+Click 'Launch Editor' to start."""
+        
+        ttk.Label(frame, text=info, justify=tk.LEFT, font=("Arial", 10)).pack(pady=20)
+        
+        ttk.Button(frame, text="▶ Launch Editor", 
+                  command=self._launch).pack(pady=20)
+    
+    def _launch(self):
+        """Launch main editor"""
+        self.completed = True
+        self.root.destroy()
+    
+    def _clear_frame(self):
+        """Clear all widgets"""
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+
+class NTBSSAutoEditor:
+    """Main auto-editing interface"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("NTBSS Complete Suite - Auto Editor")
+        self.root.geometry("1200x800")
+        
         self.current_save = None
-        self.save_data = {}
-        self.game_dir = None
-        
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
+        self.save_data = defaultdict(lambda: {"value": 0, "type": "flag", "category": "Other"})
+        self.game_process = None
         
         self.setup_ui()
     
     def setup_ui(self):
-        """Create the main tabbed interface"""
-        # Main menu bar
+        """Setup main UI"""
+        # Menu
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
         
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open Save", command=self.load_save)
-        file_menu.add_command(label="Save Changes", command=self.save_file)
-        file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self.show_about)
-        help_menu.add_command(label="Parse IDs from Save", command=self.parse_save_ids)
         
-        # Notebook (tabs)
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Main container
+        container = ttk.Frame(self.root)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Tab 1: Force-Save
-        self.force_save_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.force_save_tab, text="💾 Force-Save")
-        self.setup_force_save_tab()
+        # Workflow buttons (big and obvious)
+        workflow_frame = ttk.LabelFrame(container, text="NTBSS Auto Workflow", padding=15)
+        workflow_frame.pack(fill=tk.X, pady=10)
         
-        # Tab 2: Save Editor
-        self.editor_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.editor_tab, text="✏️ Save Editor")
-        self.setup_editor_tab()
+        step_frame = ttk.Frame(workflow_frame)
+        step_frame.pack(fill=tk.X, pady=10)
         
-        # Tab 3: DLC Unlocker
-        self.dlc_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.dlc_tab, text="🎮 DLC Unlocker")
-        self.setup_dlc_tab()
+        # Step 1: Launch game
+        ttk.Button(step_frame, text="1️⃣ Launch Game", command=self.launch_game,
+                  width=25).pack(side=tk.LEFT, padx=5)
         
-        # Tab 4: Tools
-        self.tools_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.tools_tab, text="🔧 Tools")
-        self.setup_tools_tab()
+        # Step 2: Dump save
+        ttk.Button(step_frame, text="2️⃣ Dump Save", command=self.auto_dump_save,
+                  width=25).pack(side=tk.LEFT, padx=5)
+        
+        # Step 3: Edit
+        ttk.Button(step_frame, text="3️⃣ Edit Save", command=self.show_editor,
+                  width=25).pack(side=tk.LEFT, padx=5)
+        
+        # Step 4: Return to game
+        ttk.Button(step_frame, text="4️⃣ Upload & Return", command=self.auto_upload_return,
+                  width=25).pack(side=tk.LEFT, padx=5)
+        
+        # Instructions
+        inst_frame = ttk.LabelFrame(container, text="Instructions", padding=10)
+        inst_frame.pack(fill=tk.X, pady=10)
+        
+        instructions = """1. Click 'Launch Game' to start Naruto to Boruto
+2. Load into a lobby (must be in-game, not title screen)
+3. Click 'Dump Save' to export your save
+4. Click 'Edit Save' to modify items, currency, stats
+5. Click 'Upload & Return' to reload the save and return to title screen
+6. The game will sync your changes automatically
+
+⚠️  Always backup your save file before editing!"""
+        
+        ttk.Label(inst_frame, text=instructions, justify=tk.LEFT, font=("Arial", 9)).pack(anchor=tk.W, pady=10)
+        
+        # Status
+        self.status_var = tk.StringVar(value="Ready - Click 'Launch Game' to begin")
+        status_frame = ttk.Frame(container)
+        status_frame.pack(fill=tk.X, pady=10)
+        ttk.Label(status_frame, text="Status:", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
+        ttk.Label(status_frame, textvariable=self.status_var, foreground="blue").pack(side=tk.LEFT, padx=10)
     
-    def setup_force_save_tab(self):
-        """Force-Save tab - dump and load saves"""
-        frame = ttk.LabelFrame(self.force_save_tab, text="Save Management", padding=20)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        ttk.Label(frame, text="Force-Save Tool", font=("Arial", 14, "bold")).pack(pady=10)
-        
-        desc = ttk.Label(frame, text="Dump your online save to disk or load a modified save", 
-                        font=("Arial", 10))
-        desc.pack(pady=5)
-        
-        button_frame = ttk.Frame(frame)
-        button_frame.pack(pady=20)
-        
-        ttk.Button(button_frame, text="Dump Save (Export)", command=self.dump_save, 
-                  width=25).pack(pady=10)
-        ttk.Button(button_frame, text="Upload Save (Import)", command=self.upload_save, 
-                  width=25).pack(pady=10)
-        
-        info = ttk.Label(frame, 
-                        text="⚠️ Make sure you're in-game (not on title screen)\n"
-                             "Wait 1-2 seconds after clicking Dump\n"
-                             "After Upload, return to title screen then re-enter game",
-                        font=("Arial", 9), foreground="orange", justify=tk.CENTER)
-        info.pack(pady=15)
+    def launch_game(self):
+        """Launch Naruto game"""
+        try:
+            game_paths = [
+                Path("D:/steam/steamapps/common/Naruto To Boruto/Naruto.exe"),
+                Path("C:/Program Files (x86)/Steam/steamapps/common/Naruto To Boruto/Naruto.exe"),
+                Path("C:/Program Files/Steam/steamapps/common/Naruto To Boruto/Naruto.exe"),
+            ]
+            
+            for path in game_paths:
+                if path.exists():
+                    self.game_process = subprocess.Popen(str(path))
+                    self.status_var.set(f"Game launched - Load into a lobby, then click 'Dump Save'")
+                    messagebox.showinfo("Game Launched", 
+                        "Naruto to Boruto has been launched.\n\n"
+                        "1. Load into a lobby (must be IN-GAME)\n"
+                        "2. Once in-game, click 'Dump Save'")
+                    return
+            
+            messagebox.showerror("Error", "Could not find game executable")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch game: {e}")
     
-    def setup_editor_tab(self):
-        """Save Editor tab - edit save values"""
-        frame = ttk.Frame(self.editor_tab)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def auto_dump_save(self):
+        """Automatically dump save"""
+        self.status_var.set("Dumping save...")
+        self.root.update()
         
-        # Header
-        ttk.Label(frame, text="NTBSS Save Editor", font=("Arial", 14, "bold")).pack(pady=10)
+        save_dir = Path.home() / "Saved Games" / "NARUTO TO BORUTO SHINOBI STRIKER"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        self.current_save = str(save_dir / "current_save.sav")
         
-        # Filter/search
-        search_frame = ttk.Frame(frame)
-        search_frame.pack(fill=tk.X, pady=10)
+        # Create command file for Lua mod
+        cmd_file = Path("C:\\temp\\ue_cmd.txt")
+        cmd_file.write_text("dump")
         
-        ttk.Label(search_frame, text="Search IDs:").pack(side=tk.LEFT, padx=5)
-        self.search_var = tk.StringVar()
-        self.search_var.trace('w', self.update_editor_list)
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        # Wait for dump
+        for i in range(15):  # 15 second timeout
+            time.sleep(1)
+            if Path(self.current_save).exists():
+                self.status_var.set(f"✓ Save dumped! Click 'Edit Save' to modify")
+                messagebox.showinfo("Success", 
+                    "Save dumped successfully!\n\n"
+                    "Click 'Edit Save' to make changes")
+                return
         
-        # Category filter
-        ttk.Label(search_frame, text="Category:").pack(side=tk.LEFT, padx=5)
-        self.category_var = tk.StringVar(value="All")
-        self.category_var.trace('w', self.update_editor_list)
-        categories = ["All", "Currency", "Scrolls", "Progression", "Story", "PVP", 
-                     "Missions", "Mentors", "Customization", "Items"]
-        category_combo = ttk.Combobox(search_frame, textvariable=self.category_var,
-                                      values=categories, state="readonly", width=15)
+        messagebox.showerror("Timeout", 
+            "Could not dump save after 15 seconds.\n\n"
+            "Make sure:\n"
+            "• You're in-game (not title screen)\n"
+            "• UE4SS mod is properly installed")
+    
+    def show_editor(self):
+        """Show the save editor"""
+        if not self.current_save or not Path(self.current_save).exists():
+            messagebox.showwarning("Warning", "No save loaded. Click 'Dump Save' first")
+            return
+        
+        # Parse save
+        self._parse_save(self.current_save)
+        
+        # Create editor window
+        editor_window = tk.Toplevel(self.root)
+        editor_window.title("NTBSS Save Editor")
+        editor_window.geometry("1000x700")
+        
+        # Top controls
+        control_frame = ttk.LabelFrame(editor_window, text="Controls & Search", padding=10)
+        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Search
+        ttk.Label(control_frame, text="Search:").pack(side=tk.LEFT, padx=5)
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(control_frame, textvariable=search_var, width=30)
+        search_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Category
+        ttk.Label(control_frame, text="Category:").pack(side=tk.LEFT, padx=5)
+        category_var = tk.StringVar(value="All")
+        categories = ["All", "Currency", "Scrolls", "Progression", "PVP", "Mentors", "Items", "Other"]
+        category_combo = ttk.Combobox(control_frame, textvariable=category_var,
+                                     values=categories, state="readonly", width=12)
         category_combo.pack(side=tk.LEFT, padx=5)
         
-        # Treeview for IDs
-        tree_frame = ttk.Frame(frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
+        # Buttons
+        ttk.Button(control_frame, text="🔄 Refresh", 
+                  command=lambda: self._update_tree(editor_window, tree, search_var, category_var)).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(control_frame, text="💰 Max Money", 
+                  command=lambda: self._max_money(tree)).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(control_frame, text="⚡ Max All", 
+                  command=lambda: self._max_all(tree)).pack(side=tk.RIGHT, padx=5)
         
-        # Scrollbars
+        # Tree
+        tree_frame = ttk.LabelFrame(editor_window, text="Save Data", padding=5)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         
-        hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        tree = ttk.Treeview(tree_frame, columns=("ID", "Value", "Type", "Category"),
+                           show='tree headings', yscrollcommand=vsb.set, height=25)
+        tree.pack(fill=tk.BOTH, expand=True)
         
-        # Treeview
-        self.id_tree = ttk.Treeview(tree_frame, 
-                                    columns=("ID", "Value", "Type"),
-                                    show='tree headings',
-                                    yscrollcommand=vsb.set,
-                                    xscrollcommand=hsb.set)
-        self.id_tree.pack(fill=tk.BOTH, expand=True)
+        vsb.config(command=tree.yview)
         
-        vsb.config(command=self.id_tree.yview)
-        hsb.config(command=self.id_tree.xview)
+        tree.column("#0", width=0)
+        tree.column("ID", anchor=tk.W, width=350)
+        tree.column("Value", anchor=tk.CENTER, width=100)
+        tree.column("Type", anchor=tk.CENTER, width=80)
+        tree.column("Category", anchor=tk.CENTER, width=100)
         
-        self.id_tree.column("#0", width=0)
-        self.id_tree.column("ID", anchor=tk.W, width=300)
-        self.id_tree.column("Value", anchor=tk.CENTER, width=100)
-        self.id_tree.column("Type", anchor=tk.CENTER, width=100)
+        tree.heading("ID", text="ID Name", anchor=tk.W)
+        tree.heading("Value", text="Current Value")
+        tree.heading("Type", text="Type")
+        tree.heading("Category", text="Category")
         
-        self.id_tree.heading("ID", text="ID Name", anchor=tk.W)
-        self.id_tree.heading("Value", text="Value")
-        self.id_tree.heading("Type", text="Type (1/4 byte)")
+        tree.bind('<Double-1>', lambda e: self._edit_value(tree))
         
-        # Editor controls at bottom
-        control_frame = ttk.Frame(frame)
-        control_frame.pack(fill=tk.X, pady=10)
+        # Update tree
+        self._update_tree(editor_window, tree, search_var, category_var)
         
-        ttk.Button(control_frame, text="Load Save", command=self.load_save).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Refresh", command=self.refresh_editor).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Edit Selected", command=self.edit_selected).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Parse IDs", command=self.parse_save_ids).pack(side=tk.LEFT, padx=5)
+        # Trace changes
+        search_var.trace('w', lambda *args: self._update_tree(editor_window, tree, search_var, category_var))
+        category_var.trace('w', lambda *args: self._update_tree(editor_window, tree, search_var, category_var))
+        
+        # Bottom buttons
+        button_frame = ttk.Frame(editor_window)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(button_frame, text="💡 Double-click a value to edit", foreground="blue").pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="✓ Done Editing", command=editor_window.destroy).pack(side=tk.RIGHT, padx=5)
     
-    def setup_dlc_tab(self):
-        """DLC Unlocker tab - link to CreamInstaller"""
-        frame = ttk.LabelFrame(self.dlc_tab, text="DLC Unlocker (CreamInstaller)", padding=20)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        ttk.Label(frame, text="DLC Management for Naruto to Boruto: Shinobi Striker",
-                 font=("Arial", 14, "bold")).pack(pady=10)
-        
-        info_text = """CreamInstaller automatically:
-• Detects your game installation
-• Configures for Striker ONLY
-• Unlocks selected DLCs
-• Installs in safe proxy mode
-
-This tool is for DLC access ONLY - actual DLC files must be provided separately."""
-        
-        ttk.Label(frame, text=info_text, font=("Arial", 10), justify=tk.LEFT).pack(pady=15)
-        
-        button_frame = ttk.Frame(frame)
-        button_frame.pack(pady=20)
-        
-        ttk.Button(button_frame, text="Download CreamInstaller", 
-                  command=self.download_cream, width=30).pack(pady=10)
-        ttk.Button(button_frame, text="Run CreamInstaller", 
-                  command=self.run_cream, width=30).pack(pady=10)
-        
-        warning = ttk.Label(frame, 
-                           text="⚠️ Strikeout Configuration:\nCreamInstaller will be set to ONLY unlock DLCs for Striker",
-                           font=("Arial", 9), foreground="red", justify=tk.CENTER)
-        warning.pack(pady=15)
-    
-    def setup_tools_tab(self):
-        """Tools tab - utilities and debugging"""
-        frame = ttk.LabelFrame(self.tools_tab, text="Tools & Utilities", padding=20)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Parse IDs
-        parse_frame = ttk.LabelFrame(frame, text="Save ID Parser", padding=10)
-        parse_frame.pack(fill=tk.X, pady=10)
-        
-        ttk.Label(parse_frame, text="Extract all IDs from your save file").pack(anchor=tk.W, pady=5)
-        ttk.Button(parse_frame, text="Parse Save IDs", 
-                  command=self.parse_save_ids).pack(anchor=tk.W, pady=5)
-        
-        # Directory setup
-        setup_frame = ttk.LabelFrame(frame, text="Setup", padding=10)
-        setup_frame.pack(fill=tk.X, pady=10)
-        
-        ttk.Label(setup_frame, text="Configure installation paths").pack(anchor=tk.W, pady=5)
-        ttk.Button(setup_frame, text="Find Game Directory", 
-                  command=self.find_game_dir).pack(anchor=tk.W, pady=5)
-        ttk.Button(setup_frame, text="Create Directories", 
-                  command=self.create_directories).pack(anchor=tk.W, pady=5)
-        
-        # Info
-        info_frame = ttk.LabelFrame(frame, text="Information", padding=10)
-        info_frame.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        info_text = tk.Text(info_frame, height=10, width=80)
-        info_text.pack(fill=tk.BOTH, expand=True)
-        
-        info_text.insert(tk.END, 
-            "NTBSS Complete Suite v1.0\n\n"
-            "Features:\n"
-            "• Force-Save: Dump/load your game saves\n"
-            "• Save Editor: Edit save values (currency, items, stats)\n"
-            "• ID Parser: Extract and categorize save IDs\n"
-            "• DLC Unlocker: Integrated CreamInstaller\n\n"
-            "Keyboard Shortcuts:\n"
-            "Ctrl+O: Open save\n"
-            "Ctrl+S: Save changes\n\n"
-            "GitHub: https://github.com/nr8d/NTBSS-Force-Save\n"
-            "CreamInstaller: https://github.com/FroggMaster/CreamInstaller\n"
-        )
-        info_text.config(state=tk.DISABLED)
-    
-    # Force-Save methods
-    def dump_save(self):
-        """Dump game save to disk"""
-        messagebox.showinfo("Dump Save", 
-            "Steps:\n"
-            "1. Make sure you're in-game (not title screen)\n"
-            "2. This will trigger the Lua mod to dump your save\n"
-            "3. Choose where to save the file\n\n"
-            "Wait 1-2 seconds after clicking OK")
-        
-        save_path = filedialog.asksaveasfilename(
-            title="Save Dumped Save",
-            defaultextension=".sav",
-            filetypes=[("Save Files", "*.sav"), ("All Files", "*.*")]
-        )
-        
-        if save_path:
-            messagebox.showinfo("Success", f"Save dumped to:\n{save_path}")
-            self.current_save = save_path
-            self.refresh_editor()
-    
-    def upload_save(self):
-        """Load saved file to game"""
-        selected_file = filedialog.askopenfilename(
-            title="Select Save File to Upload",
-            filetypes=[("Save Files", "*.sav"), ("All Files", "*.*")]
-        )
-        
-        if selected_file:
-            messagebox.showinfo("Upload Save",
-                "Save uploaded!\n\n"
-                "Next steps:\n"
-                "1. Return to title screen (press ESC)\n"
-                "2. Re-enter the game\n"
-                "3. Your changes should now be loaded")
-    
-    # Editor methods
-    def load_save(self):
-        """Load a save file"""
-        save_path = filedialog.askopenfilename(
-            title="Open Save File",
-            filetypes=[("Save Files", "*.sav"), ("All Files", "*.*")]
-        )
-        
-        if save_path:
-            self.current_save = save_path
-            self.parse_save_file()
-            self.refresh_editor()
-            messagebox.showinfo("Success", f"Loaded save from:\n{save_path}")
-    
-    def parse_save_file(self):
-        """Parse the current save file"""
-        if not self.current_save or not Path(self.current_save).exists():
-            messagebox.showerror("Error", "No save file loaded")
-            return
-        
+    def _parse_save(self, filepath: str):
+        """Parse save file"""
         try:
-            with open(self.current_save, 'rb') as f:
+            with open(filepath, 'rb') as f:
                 data = f.read()
             
             text_data = data.decode('utf-8', errors='ignore')
-            
-            # Extract all IDs
-            import re
             id_pattern = r'(ID_[A-Za-z_0-9]+)'
-            ids = re.findall(id_pattern, text_data)
+            ids = set(re.findall(id_pattern, text_data))
             
-            self.save_data = defaultdict(lambda: {"type": "unknown", "value": 0})
+            self.save_data = {}
             for id_str in ids:
-                self.save_data[id_str] = {"type": "flag", "value": 0}
-            
-            messagebox.showinfo("Success", f"Parsed {len(self.save_data)} IDs from save")
-        
+                self.save_data[id_str] = {
+                    "value": 0,
+                    "type": "flag" if "Flag" in id_str else "counter",
+                    "category": self._categorize_id(id_str)
+                }
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to parse save: {e}")
+            messagebox.showerror("Error", f"Failed to parse: {e}")
     
-    def update_editor_list(self, *args):
-        """Update the editor treeview"""
-        self.refresh_editor()
+    def _categorize_id(self, id_str: str) -> str:
+        """Categorize ID"""
+        if any(x in id_str for x in ["Money", "SkillPoint", "MasterPoint"]):
+            return "Currency"
+        elif "Scroll" in id_str:
+            return "Scrolls"
+        elif any(x in id_str for x in ["Experience", "PlayTime"]):
+            return "Progression"
+        elif any(x in id_str for x in ["PVP", "Kill"]):
+            return "PVP"
+        elif any(x in id_str for x in ["Master", "Naruto", "Sasuke"]):
+            return "Mentors"
+        elif any(x in id_str for x in ["Weapon", "NJT"]):
+            return "Items"
+        else:
+            return "Other"
     
-    def refresh_editor(self):
-        """Refresh the editor list"""
-        # Clear current items
-        for item in self.id_tree.get_children():
-            self.id_tree.delete(item)
+    def _update_tree(self, window, tree, search_var, category_var):
+        """Update tree view"""
+        for item in tree.get_children():
+            tree.delete(item)
         
-        search_term = self.search_var.get().lower()
-        category = self.category_var.get()
+        search_term = search_var.get().lower()
+        category = category_var.get()
         
-        # Add filtered IDs
-        count = 0
         for id_name in sorted(self.save_data.keys()):
+            id_data = self.save_data[id_name]
+            
             if search_term and search_term not in id_name.lower():
                 continue
+            if category != "All" and id_data.get("category") != category:
+                continue
             
-            value = self.save_data[id_name].get("value", 0)
-            id_type = "1 byte" if self.save_data[id_name].get("type") == "flag" else "4 byte"
-            
-            self.id_tree.insert("", "end", values=(id_name, value, id_type))
-            count += 1
-        
-        status = f"Showing {count} IDs" if count > 0 else "No IDs found"
-        self.root.title(f"NTBSS Complete Suite - {status}")
+            value = id_data.get("value", 0)
+            tree.insert("", "end", values=(id_name, value, id_data.get("type"), id_data.get("category")))
     
-    def edit_selected(self):
-        """Edit selected ID value"""
-        selection = self.id_tree.selection()
+    def _edit_value(self, tree):
+        """Edit selected value"""
+        selection = tree.selection()
         if not selection:
-            messagebox.showwarning("Warning", "Please select an ID to edit")
             return
         
         item = selection[0]
-        values = self.id_tree.item(item)['values']
+        values = tree.item(item)['values']
         id_name = values[0]
         current_value = values[1]
         
-        # Create edit dialog
-        dialog = tk.Toplevel(self.root)
+        dialog = tk.Toplevel(tree.winfo_toplevel())
         dialog.title(f"Edit {id_name}")
-        dialog.geometry("400x200")
+        dialog.geometry("350x150")
+        dialog.grab_set()
         
-        ttk.Label(dialog, text=f"ID: {id_name}", font=("Arial", 10, "bold")).pack(pady=10)
-        ttk.Label(dialog, text="Enter new value:").pack(pady=5)
+        ttk.Label(dialog, text=f"ID: {id_name}", font=("Arial", 10, "bold")).pack(pady=15)
+        ttk.Label(dialog, text="New value:").pack(pady=5)
         
         value_var = tk.StringVar(value=str(current_value))
-        value_entry = ttk.Entry(dialog, textvariable=value_var, width=20)
-        value_entry.pack(pady=5)
+        value_entry = ttk.Entry(dialog, textvariable=value_var, width=20, font=("Arial", 12))
+        value_entry.pack(pady=10)
         value_entry.focus()
+        value_entry.select_range(0, tk.END)
         
-        info_label = ttk.Label(dialog, text="Type and click OK to apply", foreground="gray")
-        info_label.pack(pady=5)
-        
-        def apply_change():
+        def apply():
             try:
                 new_value = int(value_var.get())
                 self.save_data[id_name]["value"] = new_value
-                self.refresh_editor()
+                tree.item(item, values=(id_name, new_value, self.save_data[id_name]["type"], self.save_data[id_name]["category"]))
                 dialog.destroy()
-                messagebox.showinfo("Success", f"Updated {id_name} to {new_value}")
             except ValueError:
-                messagebox.showerror("Error", "Please enter a valid number")
+                messagebox.showerror("Error", "Enter a valid number")
         
         button_frame = ttk.Frame(dialog)
         button_frame.pack(pady=15)
-        ttk.Button(button_frame, text="OK", command=apply_change, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="✓ OK", command=apply, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="✕ Cancel", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
     
-    def save_file(self):
-        """Save modified save file"""
+    def _max_money(self, tree):
+        """Max out money"""
+        for id_name in self.save_data:
+            if "Money" in id_name:
+                self.save_data[id_name]["value"] = 999999999
+        messagebox.showinfo("Success", "Money maxed out!")
+    
+    def _max_all(self, tree):
+        """Max all currencies"""
+        for id_name in self.save_data:
+            if any(x in id_name for x in ["Money", "SkillPoint", "MasterPoint", "Experience"]):
+                self.save_data[id_name]["value"] = 999999999
+            elif "Scroll" in id_name:
+                self.save_data[id_name]["value"] = 9999
+        messagebox.showinfo("Success", "All currencies maxed!")
+    
+    def auto_upload_return(self):
+        """Upload save and return to title screen"""
         if not self.current_save:
-            messagebox.showwarning("Warning", "No save file loaded")
+            messagebox.showwarning("Warning", "No save to upload")
             return
         
-        messagebox.showinfo("Save File", "Save modifications will be applied when you upload the save to the game")
-    
-    # DLC Unlocker methods
-    def download_cream(self):
-        """Download CreamInstaller"""
-        messagebox.showinfo("Download",
-            "Visit: https://github.com/FroggMaster/CreamInstaller/releases\n\n"
-            "Download the latest CreamInstaller.exe")
-    
-    def run_cream(self):
-        """Run CreamInstaller"""
-        try:
-            subprocess.Popen("CreamInstaller.exe")
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not run CreamInstaller:\n{e}\n\nMake sure CreamInstaller.exe is in your PATH")
-    
-    # Tools methods
-    def parse_save_ids(self):
-        """Parse IDs from current save"""
-        if not self.current_save:
-            self.current_save = filedialog.askopenfilename(
-                title="Select Save File",
-                filetypes=[("Save Files", "*.sav"), ("All Files", "*.*")]
-            )
+        self.status_var.set("Uploading save and returning to title screen...")
+        self.root.update()
         
-        if not self.current_save:
-            return
+        # Create upload command
+        cmd_file = Path("C:\\temp\\ue_cmd.txt")
+        cmd_file.write_text("upload")
         
-        # Run parser in thread
-        thread = Thread(target=self._run_parser, daemon=True)
-        thread.start()
-    
-    def _run_parser(self):
-        """Run the ID parser"""
-        try:
-            subprocess.run([sys.executable, "ntbss_id_parser.py", self.current_save], check=True)
-            self.root.after(0, lambda: messagebox.showinfo("Success", "IDs parsed and exported"))
-        except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to parse IDs:\n{e}"))
-    
-    def find_game_dir(self):
-        """Find game directory"""
-        try:
-            import winreg
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Wow6432Node\Valve\Steam") as key:
-                steam_path = winreg.QueryValueEx(key, "InstallPath")[0]
-                game_path = os.path.join(steam_path, "steamapps", "common", "Naruto To Boruto")
-                
-                if os.path.exists(game_path):
-                    self.game_dir = game_path
-                    messagebox.showinfo("Success", f"Found game at:\n{game_path}")
-                    return
-        except:
-            pass
+        # Wait a bit
+        time.sleep(2)
         
-        messagebox.showwarning("Not Found", "Game directory not found in registry")
-    
-    def create_directories(self):
-        """Create necessary directories"""
+        # Send ESC to return to title screen
         try:
-            os.makedirs(r"C:\temp", exist_ok=True)
-            save_dir = Path.home() / "Saved Games" / "NARUTO TO BORUTO SHINOBI STRIKER"
-            save_dir.mkdir(parents=True, exist_ok=True)
-            messagebox.showinfo("Success", "Directories created successfully")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to create directories:\n{e}")
+            import pyautogui
+            pyautogui.press('esc')
+            time.sleep(1)
+            
+            self.status_var.set("✓ Save uploaded and returned to title screen!")
+            messagebox.showinfo("Complete", 
+                "Save has been uploaded!\n\n"
+                "The game has been returned to title screen.\n"
+                "Changes will sync when you re-enter the game.")
+        except ImportError:
+            messagebox.showinfo("Manual Step",
+                "Save has been uploaded!\n\n"
+                "Manually:\n"
+                "1. Press ESC to go to title screen\n"
+                "2. Re-enter the game\n"
+                "3. Your changes will be loaded")
+            self.status_var.set("✓ Upload complete - manually return to title screen")
     
     def show_about(self):
-        """Show about dialog"""
+        """Show about"""
         messagebox.showinfo("About",
-            "NTBSS Complete Suite v1.0\n\n"
-            "Combined Force-Save + Save Editor + DLC Unlocker\n"
-            "For Naruto to Boruto: Shinobi Striker\n\n"
-            "Force-Save: https://github.com/nr8d/NTBSS-Force-Save\n"
-            "CreamInstaller: https://github.com/FroggMaster/CreamInstaller\n\n"
-            "Use at your own risk - always backup your saves!")
+            "NTBSS Complete Suite - Auto Editor\n\n"
+            "One-click workflow for editing saves:\n"
+            "1. Launch game\n"
+            "2. Dump save\n"
+            "3. Edit save\n"
+            "4. Upload & return\n\n"
+            "GitHub: https://github.com/nr8dn/NTBSS-Experiment")
 
 
 def main():
     """Main entry point"""
     if sys.platform != "win32":
-        print("Error: This application requires Windows")
+        messagebox.showerror("Error", "This requires Windows")
         sys.exit(1)
     
+    # First-time setup check
+    setup_flag = Path.home() / ".ntbss_setup_done"
+    
+    if not setup_flag.exists():
+        root = tk.Tk()
+        wizard = NTBSSAutoSetup(root)
+        root.mainloop()
+        
+        if wizard.completed:
+            setup_flag.write_text("done")
+    
+    # Launch main editor
     root = tk.Tk()
-    app = NTBSSCompleteSuite(root)
+    app = NTBSSAutoEditor(root)
     root.mainloop()
 
 

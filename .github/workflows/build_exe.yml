@@ -27,7 +27,7 @@ jobs:
         pyinstaller ntbss_complete_suite.py --onefile --windowed --name "NTBSS-Complete-Suite"
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: NTBSS-Complete-Suite-EXE
         path: dist/NTBSS-Complete-Suite.exe
